@@ -1,6 +1,7 @@
+// app/preview.tsx
 import React, { useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, ActivityIndicator, Platform } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Heart } from 'lucide-react-native';
@@ -8,13 +9,27 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import Toast from '@/components/Toast';
 import { useFavorites } from '@/contexts/FavoritesContext';
-import { openAndroidWallpaperPicker } from '@/utils/wallpaperPicker';
+import { setWallpaperPro } from '@/utils/wallpaperEngine';
 import type { Wallpaper } from '@/mocks/wallpapers';
+
+type Which = 'home' | 'lock' | 'both';
+
+function getErrorMessage(err: unknown): string {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (err instanceof Error) return err.message || String(err);
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
 
 export default function PreviewScreen() {
   const { wallpaper: wallpaperParam } = useLocalSearchParams<{ wallpaper: string }>();
   const insets = useSafeAreaInsets();
   const { isFavorite, toggleFavorite } = useFavorites();
+
   const [isSettingWallpaper, setIsSettingWallpaper] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [showToast, setShowToast] = useState(false);
@@ -44,46 +59,86 @@ export default function PreviewScreen() {
     if (!wallpaper) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const action = toggleFavorite(wallpaper);
-    if (action === 'added') {
-      showToastMessage('Saved to Favorites');
-    } else if (action === 'removed') {
-      showToastMessage('Removed from Favorites');
-    }
+    if (action === 'added') showToastMessage('Saved to Favorites');
+    if (action === 'removed') showToastMessage('Removed from Favorites');
   }, [wallpaper, toggleFavorite, showToastMessage]);
 
-  const handleSetWallpaper = useCallback(async () => {
+  // Safety: if user leaves screen while spinner is active, reset it.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setIsSettingWallpaper(false);
+      };
+    }, [])
+  );
+
+  const applyWallpaper = useCallback(
+    async (which: Which) => {
+      if (!wallpaper) return;
+
+      // Block spam taps
+      if (isSettingWallpaper) return;
+
+      if (Platform.OS !== 'android') {
+        Alert.alert('Android Only', 'Setting wallpaper is only supported on Android devices.', [{ text: 'OK' }]);
+        return;
+      }
+
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setIsSettingWallpaper(true);
+
+      showToastMessage('Applying wallpaper…');
+
+      try {
+        console.log('[Preview] Applying wallpaper:', { id: wallpaper.id, which });
+
+        await setWallpaperPro(wallpaper.imageUrl, which, {
+          wallpaperId: wallpaper.id,
+          category: (wallpaper as any)?.collectionId ?? (wallpaper as any)?.category ?? 'unknown',
+        });
+
+        showToastMessage(which === 'both' ? 'Chooser opened / applied' : 'Wallpaper applied / chooser opened');
+      } catch (error) {
+        const msg = getErrorMessage(error);
+        console.error('[Preview] Error setting wallpaper:', msg);
+
+        Alert.alert(
+          "Couldn't set wallpaper",
+          `Device error: ${msg}\n\nTry another wallpaper or try again.`,
+          [{ text: 'OK' }]
+        );
+      } finally {
+        setIsSettingWallpaper(false);
+      }
+    },
+    [wallpaper, isSettingWallpaper, showToastMessage]
+  );
+
+  const handleSetWallpaperPress = useCallback(() => {
     if (!wallpaper) return;
 
     if (Platform.OS !== 'android') {
-      Alert.alert(
-        'Android Only',
-        'Setting wallpaper is only supported on Android devices.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Android Only', 'Setting wallpaper is only supported on Android devices.', [{ text: 'OK' }]);
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsSettingWallpaper(true);
+    // Don’t open the chooser if already busy
+    if (isSettingWallpaper) return;
 
-    try {
-      console.log('[Preview] Starting wallpaper setting flow');
-      
-      await openAndroidWallpaperPicker(wallpaper.imageUrl, wallpaper.id);
-      
-      console.log('[Preview] Wallpaper picker launched successfully');
-      showToastMessage('Wallpaper applied');
-    } catch (error) {
-      console.error('[Preview] Error setting wallpaper:', error);
-      Alert.alert(
-        "Couldn't set wallpaper",
-        'This can happen on some devices. Please try another wallpaper.\n\nTip: Make sure your device allows wallpaper changes.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setIsSettingWallpaper(false);
-    }
-  }, [wallpaper, showToastMessage]);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    Alert.alert(
+      'Set Wallpaper',
+      'Choose where to apply this wallpaper:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Home screen', onPress: () => applyWallpaper('home') },
+        { text: 'Lock screen', onPress: () => applyWallpaper('lock') },
+        { text: 'Both (recommended)', onPress: () => applyWallpaper('both') },
+      ],
+      { cancelable: true }
+    );
+  }, [wallpaper, isSettingWallpaper, applyWallpaper]);
 
   if (!wallpaper) {
     return (
@@ -106,29 +161,16 @@ export default function PreviewScreen() {
         }}
       />
 
-      <Image
-        source={{ uri: wallpaper.imageUrl }}
-        style={styles.image}
-        contentFit="cover"
-        transition={300}
-      />
+      <Image source={{ uri: wallpaper.imageUrl }} style={styles.image} contentFit="cover" transition={300} />
 
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + 16 }]}>
-        <Pressable
-          style={styles.favoriteButton}
-          onPress={handleFavoritePress}
-          testID="preview-favorite-button"
-        >
-          <Heart
-            size={24}
-            color={isFav ? Colors.favorite : Colors.text}
-            fill={isFav ? Colors.favorite : 'transparent'}
-          />
+        <Pressable style={styles.favoriteButton} onPress={handleFavoritePress} testID="preview-favorite-button">
+          <Heart size={24} color={isFav ? Colors.favorite : Colors.text} fill={isFav ? Colors.favorite : 'transparent'} />
         </Pressable>
 
         <Pressable
           style={[styles.setWallpaperButton, isSettingWallpaper && styles.buttonDisabled]}
-          onPress={handleSetWallpaper}
+          onPress={handleSetWallpaperPress}
           disabled={isSettingWallpaper}
           testID="set-wallpaper-button"
         >
@@ -140,24 +182,14 @@ export default function PreviewScreen() {
         </Pressable>
       </View>
 
-      <Toast
-        message={toastMessage}
-        visible={showToast}
-        onHide={handleHideToast}
-      />
+      <Toast message={toastMessage} visible={showToast} onHide={handleHideToast} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  image: {
-    flex: 1,
-    width: '100%',
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  image: { flex: 1, width: '100%' },
   actionBar: {
     position: 'absolute',
     bottom: 0,
@@ -186,23 +218,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
+  buttonDisabled: { opacity: 0.7 },
   setWallpaperText: {
     color: Colors.background,
     fontSize: 15,
     fontWeight: '700' as const,
     letterSpacing: 0.5,
   },
-  errorContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    color: Colors.textMuted,
-    fontSize: 16,
-  },
+  errorContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  errorText: { color: Colors.textMuted, fontSize: 16 },
 });

@@ -1,69 +1,210 @@
+// utils/wallpaperPicker.ts
 import { Platform, Dimensions } from 'react-native';
-import { File, Paths, getContentUriAsync } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as IntentLauncher from 'expo-intent-launcher';
 
-export async function openAndroidWallpaperPicker(imageUrl: string, id: string): Promise<void> {
-  if (Platform.OS !== 'android') {
-    console.log('[WallpaperPicker] Not Android, skipping');
-    throw new Error('Wallpaper setting is only supported on Android');
+const FLAG_GRANT_READ_URI_PERMISSION = 1;
+const FLAG_GRANT_WRITE_URI_PERMISSION = 2;
+
+const MAX_W = 1440;
+const MAX_H = 2560;
+
+const EXTRA_STREAM = 'android.intent.extra.STREAM';
+
+function clampSize(w: number, h: number) {
+  const scale = Math.min(MAX_W / w, MAX_H / h, 1);
+  return {
+    width: Math.max(1, Math.floor(w * scale)),
+    height: Math.max(1, Math.floor(h * scale)),
+  };
+}
+
+function ensureTrailingSlash(dir: string) {
+  return dir.endsWith('/') ? dir : dir + '/';
+}
+
+function pickWritableDir(): string | null {
+  const dir =
+    FileSystem.cacheDirectory ??
+    FileSystem.documentDirectory ??
+    // @ts-ignore (some Expo versions)
+    (FileSystem as any).temporaryDirectory ??
+    null;
+
+  return dir ? ensureTrailingSlash(dir) : null;
+}
+
+async function safeDelete(uri?: string) {
+  if (!uri) return;
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists) await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // ignore
   }
+}
+
+async function ensureExists(uri: string, label: string) {
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) throw new Error(`${label} not found: ${uri}`);
+}
+
+async function start(action: string, opts: Parameters<typeof IntentLauncher.startActivityAsync>[1]) {
+  return IntentLauncher.startActivityAsync(action, opts);
+}
+
+async function launch(action: string, contentUri: string, extra?: Record<string, any>) {
+  return start(action, {
+    data: contentUri,
+    type: 'image/jpeg',
+    flags: FLAG_GRANT_READ_URI_PERMISSION | FLAG_GRANT_WRITE_URI_PERMISSION,
+    extra: extra ?? {},
+  });
+}
+
+async function openWallpaperSettingsFallback() {
+  return start('android.settings.WALLPAPER_SETTINGS', {});
+}
+
+export async function openAndroidWallpaperPicker(imageUrl: string, id: string): Promise<void> {
+  if (Platform.OS !== 'android') throw new Error('Wallpaper setting is only supported on Android');
+
+  let downloadedUri: string | undefined;
+  let manipulatedUri: string | undefined;
+  let finalJpegUri: string | undefined;
 
   try {
-    console.log('[WallpaperPicker] Starting wallpaper picker flow');
-    console.log('[WallpaperPicker] Image URL:', imageUrl);
-    console.log('[WallpaperPicker] Wallpaper ID:', id);
+    console.log('[WallpaperPicker] Start', { imageUrl, id });
 
-    const { width, height } = Dimensions.get('window');
-    const targetWidth = Math.floor(width);
-    const targetHeight = Math.floor(height);
+    // 0) Writable dir (fixes Infinix cacheDirectory null)
+    const baseDir = pickWritableDir();
+    if (!baseDir) throw new Error('No writable directory available (cache/document missing)');
+    console.log('[WallpaperPicker] writableDir:', baseDir);
 
-    console.log('[WallpaperPicker] Target dimensions:', targetWidth, 'x', targetHeight);
+    // 1) Target size (screen) then clamp
+    const { width, height } = Dimensions.get('screen');
+    const target = clampSize(Math.floor(width), Math.floor(height));
+    console.log('[WallpaperPicker] screen:', width, 'x', height, 'target:', target);
 
-    const cacheFileName = `wallpaper_${id}.jpg`;
-    const cacheFile = new File(Paths.cache, cacheFileName);
+    // 2) Download with .jpg extension (OEM-friendly)
+    const downloadPath = `${baseDir}zw_${id}_${Date.now()}_dl.jpg`;
+    console.log('[WallpaperPicker] downloading ->', downloadPath);
 
-    console.log('[WallpaperPicker] Downloading image...');
-    const downloadedFile = await File.downloadFileAsync(imageUrl, cacheFile, { idempotent: true });
-    console.log('[WallpaperPicker] Downloaded to:', downloadedFile.uri);
+    const downloadRes = await FileSystem.downloadAsync(imageUrl, downloadPath);
+    downloadedUri = downloadRes.uri;
+    await ensureExists(downloadedUri, 'Downloaded file');
 
-    console.log('[WallpaperPicker] Resizing and converting to JPEG...');
-    const manipulatedImage = await ImageManipulator.manipulateAsync(
-      downloadedFile.uri,
-      [{ resize: { width: targetWidth, height: targetHeight } }],
-      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+    // 3) Manipulate (resize + jpeg)
+    console.log('[WallpaperPicker] manipulating -> jpeg');
+    const manipulated = await ImageManipulator.manipulateAsync(
+      downloadedUri,
+      [{ resize: { width: target.width, height: target.height } }],
+      { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
     );
-    console.log('[WallpaperPicker] Manipulated image URI:', manipulatedImage.uri);
+    manipulatedUri = manipulated.uri;
+    await ensureExists(manipulatedUri, 'Manipulated JPEG');
 
-    console.log('[WallpaperPicker] Getting content URI...');
-    const contentUri = await getContentUriAsync(manipulatedImage.uri);
-    console.log('[WallpaperPicker] Content URI:', contentUri);
+    // 4) Copy to stable path (some OEMs prefer stable file)
+    const finalPath = `${baseDir}zw_${id}_${Date.now()}_final.jpg`;
+    await FileSystem.copyAsync({ from: manipulatedUri, to: finalPath });
+    finalJpegUri = finalPath;
+    await ensureExists(finalJpegUri, 'Final JPEG');
 
-    console.log('[WallpaperPicker] Launching wallpaper picker intent...');
-    await IntentLauncher.startActivityAsync('android.intent.action.SET_WALLPAPER', {
-      data: contentUri,
-      type: 'image/jpeg',
-      flags: 1,
-    });
+    // 5) content://
+    const contentUri = await FileSystem.getContentUriAsync(finalJpegUri);
+    console.log('[WallpaperPicker] contentUri:', contentUri);
 
-    console.log('[WallpaperPicker] Intent launched successfully');
+    // ========= FALLBACK CHAIN (PRO) =========
 
+    // A) SET_WALLPAPER (data)
+    try {
+      console.log('[WallpaperPicker] A: SET_WALLPAPER');
+      await launch('android.intent.action.SET_WALLPAPER', contentUri);
+      console.log('[WallpaperPicker] A OK');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] A failed:', String(e));
+    }
+
+    // B) SET_WALLPAPER + EXTRA_STREAM
+    try {
+      console.log('[WallpaperPicker] B: SET_WALLPAPER + EXTRA_STREAM');
+      await launch('android.intent.action.SET_WALLPAPER', contentUri, {
+        [EXTRA_STREAM]: contentUri,
+      });
+      console.log('[WallpaperPicker] B OK');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] B failed:', String(e));
+    }
+
+    // C) CROP_AND_SET_WALLPAPER (AOSP / some OEMs)
+    try {
+      console.log('[WallpaperPicker] C: CROP_AND_SET_WALLPAPER');
+      await launch('com.android.wallpaper.CROP_AND_SET_WALLPAPER', contentUri);
+      console.log('[WallpaperPicker] C OK');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] C failed:', String(e));
+    }
+
+    // D) ATTACH_DATA (OEM fallback)
+    try {
+      console.log('[WallpaperPicker] D: ATTACH_DATA');
+      await launch('android.intent.action.ATTACH_DATA', contentUri, {
+        mimeType: 'image/jpeg',
+      });
+      console.log('[WallpaperPicker] D OK');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] D failed:', String(e));
+    }
+
+    // E) VIEW (opens Gallery/Photos viewer → user selects Set as wallpaper)
+    try {
+      console.log('[WallpaperPicker] E: VIEW');
+      await start('android.intent.action.VIEW', {
+        data: contentUri,
+        type: 'image/jpeg',
+        flags: FLAG_GRANT_READ_URI_PERMISSION | FLAG_GRANT_WRITE_URI_PERMISSION,
+      });
+      console.log('[WallpaperPicker] E OK (viewer opened)');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] E failed:', String(e));
+    }
+
+    // F) SEND (share chooser → Gallery/Wallpaper apps can set wallpaper)
+    try {
+      console.log('[WallpaperPicker] F: SEND (share chooser)');
+      await start('android.intent.action.SEND', {
+        type: 'image/jpeg',
+        flags: FLAG_GRANT_READ_URI_PERMISSION | FLAG_GRANT_WRITE_URI_PERMISSION,
+        extra: { [EXTRA_STREAM]: contentUri },
+      });
+      console.log('[WallpaperPicker] F OK (share opened)');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] F failed:', String(e));
+    }
+
+    // G) System wallpaper settings (manual)
+    try {
+      console.log('[WallpaperPicker] G: WALLPAPER_SETTINGS');
+      await openWallpaperSettingsFallback();
+      console.log('[WallpaperPicker] G OK (settings opened)');
+      return;
+    } catch (e) {
+      console.log('[WallpaperPicker] G failed:', String(e));
+    }
+
+    throw new Error('This device blocked all wallpaper methods.');
+  } finally {
     setTimeout(() => {
-      try {
-        const tempFile = new File(manipulatedImage.uri);
-        if (tempFile.exists) {
-          tempFile.delete();
-          console.log('[WallpaperPicker] Cleaned up temp file');
-        }
-      } catch (cleanupError) {
-        console.log('[WallpaperPicker] Cleanup error (non-critical):', cleanupError);
-      }
-    }, 60000);
-
-  } catch (error) {
-    console.error('[WallpaperPicker] Error:', error);
-    console.error('[WallpaperPicker] Failed image URL:', imageUrl);
-    console.error('[WallpaperPicker] Cache directory:', Paths.cache);
-    throw error;
+      safeDelete(downloadedUri);
+      safeDelete(manipulatedUri);
+      safeDelete(finalJpegUri);
+    }, 30000);
   }
 }

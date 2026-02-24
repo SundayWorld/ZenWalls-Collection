@@ -3,7 +3,7 @@
     "name": "ZenWalls Collection",
     "slug": "zenwalls-collection",
     "version": "1.0.0",
-    "versionCode": 1,
+    "versionCode": 9,
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "zenwalls-collection",
@@ -40,7 +40,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://zenwalls.com/"
+      },
+      "eas": {
+        "projectId": "a21a54ed-0ba9-4957-9e55-c4963d9ec6bc"
+      }
+    },
+    "owner": "sunnyapp"
   }
 }
-
