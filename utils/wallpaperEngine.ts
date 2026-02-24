@@ -1,7 +1,6 @@
 // utils/wallpaperEngine.ts
 import { NativeModules, Platform } from 'react-native';
 import { openAndroidWallpaperPicker } from '@/utils/wallpaperPicker';
-import { track } from '@/utils/analytics';
 
 type Which = 'home' | 'lock' | 'both';
 
@@ -23,13 +22,9 @@ function withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
   });
 }
 
-async function safeTrack(event: string, props: Record<string, any>) {
-  try {
-    await track(event, props);
-  } catch (e) {
-    // analytics must never block wallpaper flow
-    console.log('[WallpaperEngine] track failed:', event, String(e));
-  }
+// ✅ Build-safe: no analytics import (prevents "Unable to resolve ./analytics")
+async function safeTrack(_event: string, _props: Record<string, any>) {
+  // no-op (kept async so existing awaits remain valid)
 }
 
 async function tryNative(imageUrl: string, which: Which, base: Record<string, any>, t0: number) {
@@ -102,9 +97,7 @@ export async function setWallpaperPro(
 
   await safeTrack('wallpaper_set_tap', base);
 
-  // ✅ KEY UPGRADE:
-  // If user chose "both", we prefer Intent FIRST so Android shows the chooser UI
-  // (Home screen / Lock screen / Both) like Play Store wallpaper apps.
+  // ✅ If user chose "both", prefer Intent FIRST so Android shows chooser UI
   if (which === 'both') {
     const okIntent = await tryIntent(imageUrl, base, t0);
     if (okIntent) return;
@@ -116,7 +109,7 @@ export async function setWallpaperPro(
     throw new Error('Device blocked both intent and native wallpaper methods');
   }
 
-  // For 'home' or 'lock': native first (best), then intent chooser fallback
+  // For 'home' or 'lock': native first (best), then intent fallback
   const okNative = await tryNative(imageUrl, which, base, t0);
   if (okNative) return;
 
