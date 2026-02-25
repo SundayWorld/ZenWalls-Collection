@@ -9,7 +9,10 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import Toast from '@/components/Toast';
 import { useFavorites } from '@/contexts/FavoritesContext';
-import { setWallpaperPro } from '@/utils/wallpaperEngine';
+
+// ✅ NEW: use the MediaStore + setStream path
+import { setAndroidWallpaper } from '@/utils/wallpaperPicker';
+
 import type { Wallpaper } from '@/mocks/wallpapers';
 
 type Which = 'home' | 'lock' | 'both';
@@ -92,21 +95,17 @@ export default function PreviewScreen() {
       try {
         console.log('[Preview] Applying wallpaper:', { id: wallpaper.id, which });
 
-        await setWallpaperPro(wallpaper.imageUrl, which, {
-          wallpaperId: wallpaper.id,
-          category: (wallpaper as any)?.collectionId ?? (wallpaper as any)?.category ?? 'unknown',
-        });
+        // ✅ Most reliable path (MediaStore content:// -> WallpaperManager.setStream)
+        await setAndroidWallpaper(wallpaper.imageUrl, which);
 
-        showToastMessage(which === 'both' ? 'Chooser opened / applied' : 'Wallpaper applied / chooser opened');
+        showToastMessage('Wallpaper applied');
       } catch (error) {
         const msg = getErrorMessage(error);
         console.error('[Preview] Error setting wallpaper:', msg);
 
-        Alert.alert(
-          "Couldn't set wallpaper",
-          `Device error: ${msg}\n\nTry another wallpaper or try again.`,
-          [{ text: 'OK' }]
-        );
+        Alert.alert("Couldn't set wallpaper", `Device error: ${msg}\n\nTry another wallpaper or try again.`, [
+          { text: 'OK' },
+        ]);
       } finally {
         setIsSettingWallpaper(false);
       }

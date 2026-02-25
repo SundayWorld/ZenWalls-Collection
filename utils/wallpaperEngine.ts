@@ -1,15 +1,17 @@
-// utils/wallpaperEngine.ts
-import { NativeModules, Platform } from 'react-native';
-import { openAndroidWallpaperPicker } from '@/utils/wallpaperPicker';
+/* utils/wallpaperEngine.ts */
+import { Platform } from 'react-native';
+import { setAndroidWallpaper, openAndroidWallpaperPicker } from '@/utils/wallpaperPicker';
 
 type Which = 'home' | 'lock' | 'both';
 
-const { ZenWallpaper } = NativeModules;
+// ✅ Build-safe: no analytics import
+async function safeTrack(_event: string, _props: Record<string, any>) {
+  // no-op
+}
 
-function withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = 10000): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Wallpaper engine timeout')), ms);
-
     promise
       .then((v) => {
         clearTimeout(timer);
@@ -20,63 +22,6 @@ function withTimeout<T>(promise: Promise<T>, ms = 8000): Promise<T> {
         reject(err);
       });
   });
-}
-
-// ✅ Build-safe: no analytics import (prevents "Unable to resolve ./analytics")
-async function safeTrack(_event: string, _props: Record<string, any>) {
-  // no-op (kept async so existing awaits remain valid)
-}
-
-async function tryNative(imageUrl: string, which: Which, base: Record<string, any>, t0: number) {
-  if (ZenWallpaper && typeof ZenWallpaper.setWallpaperFromUrl === 'function') {
-    try {
-      await safeTrack('wallpaper_set_attempt', { ...base, method: 'native' });
-
-      await withTimeout(ZenWallpaper.setWallpaperFromUrl(imageUrl, which), 10000);
-
-      await safeTrack('wallpaper_set_success', {
-        ...base,
-        method: 'native',
-        ms: Date.now() - t0,
-      });
-      return true;
-    } catch (e) {
-      await safeTrack('wallpaper_set_fail', {
-        ...base,
-        method: 'native',
-        ms: Date.now() - t0,
-        error: String(e),
-      });
-      return false;
-    }
-  }
-
-  await safeTrack('wallpaper_set_native_missing', base);
-  return false;
-}
-
-async function tryIntent(imageUrl: string, base: Record<string, any>, t0: number) {
-  try {
-    await safeTrack('wallpaper_set_attempt', { ...base, method: 'intent' });
-
-    // Intent method opens system UI on most devices (chooser like Home/Lock/Both)
-    await openAndroidWallpaperPicker(imageUrl, String(Date.now()));
-
-    await safeTrack('wallpaper_set_success', {
-      ...base,
-      method: 'intent',
-      ms: Date.now() - t0,
-    });
-    return true;
-  } catch (e) {
-    await safeTrack('wallpaper_set_fail', {
-      ...base,
-      method: 'intent',
-      ms: Date.now() - t0,
-      error: String(e),
-    });
-    return false;
-  }
 }
 
 export async function setWallpaperPro(
@@ -97,25 +42,49 @@ export async function setWallpaperPro(
 
   await safeTrack('wallpaper_set_tap', base);
 
-  // ✅ If user chose "both", prefer Intent FIRST so Android shows chooser UI
-  if (which === 'both') {
-    const okIntent = await tryIntent(imageUrl, base, t0);
-    if (okIntent) return;
+  // ✅ PRIMARY (Most reliable): MediaStore content:// + WallpaperManager.setStream (inside setAndroidWallpaper)
+  try {
+    await safeTrack('wallpaper_set_attempt', { ...base, method: 'stream' });
 
-    const okNative = await tryNative(imageUrl, which, base, t0);
-    if (okNative) return;
+    await withTimeout(setAndroidWallpaper(imageUrl, which), 15000);
 
-    await safeTrack('wallpaper_set_blocked', { ...base, ms: Date.now() - t0 });
-    throw new Error('Device blocked both intent and native wallpaper methods');
+    await safeTrack('wallpaper_set_success', {
+      ...base,
+      method: 'stream',
+      ms: Date.now() - t0,
+    });
+    return;
+  } catch (e) {
+    await safeTrack('wallpaper_set_fail', {
+      ...base,
+      method: 'stream',
+      ms: Date.now() - t0,
+      error: String(e),
+    });
+    // fallback below
   }
 
-  // For 'home' or 'lock': native first (best), then intent fallback
-  const okNative = await tryNative(imageUrl, which, base, t0);
-  if (okNative) return;
+  // ✅ FINAL FALLBACK: intent chain (chooser / OEM dependent)
+  try {
+    await safeTrack('wallpaper_set_attempt', { ...base, method: 'intent' });
 
-  const okIntent = await tryIntent(imageUrl, base, t0);
-  if (okIntent) return;
+    await withTimeout(openAndroidWallpaperPicker(imageUrl, String(Date.now())), 15000);
+
+    await safeTrack('wallpaper_set_success', {
+      ...base,
+      method: 'intent',
+      ms: Date.now() - t0,
+    });
+    return;
+  } catch (e) {
+    await safeTrack('wallpaper_set_fail', {
+      ...base,
+      method: 'intent',
+      ms: Date.now() - t0,
+      error: String(e),
+    });
+  }
 
   await safeTrack('wallpaper_set_blocked', { ...base, ms: Date.now() - t0 });
-  throw new Error('Device blocked both native and intent wallpaper methods');
+  throw new Error('Device blocked all wallpaper methods');
 }

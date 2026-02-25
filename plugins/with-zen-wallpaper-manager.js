@@ -17,11 +17,12 @@ function readFileStrict(p, label) {
     throw new Error(
       `[with-zen-wallpaper-manager] Missing ${label} at:\n${p}\n\n` +
         `✅ Fix:\n` +
-        `1) Ensure folder "android-native" exists in project root\n` +
+        `1) Make sure the folder "android-native" exists in your project root\n` +
         `2) Ensure these files exist:\n` +
         `   - android-native/ZenWallpaperModule.java\n` +
         `   - android-native/ZenWallpaperPackage.java\n` +
-        `3) Commit & push before EAS build\n`
+        `3) Make sure the folder is NOT ignored by git (.gitignore)\n` +
+        `4) Commit & push before EAS build\n`
     );
   }
   return fs.readFileSync(p, "utf8");
@@ -40,94 +41,113 @@ function addSetWallpaperPermission(androidManifest) {
   return androidManifest;
 }
 
-function isKotlinFile(contents) {
-  // Kotlin MainApplication usually contains: "class MainApplication : Application(), ReactApplication"
-  // Java contains: "public class MainApplication extends Application implements ReactApplication"
+function isKotlinMainApplication(contents) {
   return (
-    contents.includes("class MainApplication") ||
-    contents.includes("override fun") ||
-    contents.includes(": Application")
+    contents.includes("class MainApplication") &&
+    (contents.includes("override fun") ||
+      contents.includes("PackageList(this).packages") ||
+      contents.includes("packages = PackageList(this).packages"))
   );
 }
 
-function patchMainApplicationKotlin(contents, packageName) {
-  const importLine = `import ${packageName}.ZenWallpaperPackage`;
+function addImportJava(contents, packageName) {
+  const importLine = `import ${packageName}.ZenWallpaperPackage;\n`;
+  if (contents.includes(importLine) || contents.includes("ZenWallpaperPackage")) return contents;
 
-  // 1) Ensure import exists (Kotlin imports must be at top)
-  if (!contents.includes(importLine)) {
-    // insert after the last existing import
-    if (contents.match(/^import\s.+$/m)) {
-      contents = contents.replace(
-        /(^import\s.+$\n)(?![\s\S]*^import\s.+$\n)/m,
-        (m) => m + importLine + "\n"
-      );
-    } else {
-      // fallback: insert after package line
-      contents = contents.replace(
-        /^(package\s+[^\n]+\n)/,
-        `$1\n${importLine}\n`
-      );
-    }
+  const importRegex = /^import .*;\s*$/gm;
+  let lastMatch = null;
+  let match;
+  while ((match = importRegex.exec(contents)) !== null) lastMatch = match;
+
+  if (lastMatch) {
+    const idx = lastMatch.index + lastMatch[0].length;
+    return contents.slice(0, idx) + "\n" + importLine + contents.slice(idx);
   }
 
-  // 2) Add packages.add(ZenWallpaperPackage())
-  // Look for: val packages = PackageList(this).packages
-  if (!contents.includes("packages.add(ZenWallpaperPackage())")) {
-    const re = /val\s+packages\s*=\s*PackageList\s*\(\s*this\s*\)\s*\.packages/;
-    if (re.test(contents)) {
-      contents = contents.replace(re, (m) => {
+  return importLine + contents;
+}
+
+function addImportKotlin(contents, packageName) {
+  const importLine = `import ${packageName}.ZenWallpaperPackage\n`;
+  if (contents.includes(importLine) || contents.includes("ZenWallpaperPackage")) return contents;
+
+  return contents.replace(/^(package\s+[^\n]+\n)/m, (m) => m + importLine);
+}
+
+function patchJavaMainApplication(contents, packageName) {
+  contents = addImportJava(contents, packageName);
+
+  if (!contents.includes("packages.add(new ZenWallpaperPackage())")) {
+    const lineRegex =
+      /List<ReactPackage>\s+packages\s*=\s*new\s+PackageList\s*\(\s*this\s*\)\s*\.getPackages\s*\(\s*\)\s*;\s*/;
+
+    if (lineRegex.test(contents)) {
+      contents = contents.replace(lineRegex, (m) => {
         return (
           m +
           "\n    // ZenWallpaper native module\n" +
-          "    packages.add(ZenWallpaperPackage())"
+          "    packages.add(new ZenWallpaperPackage());\n"
         );
       });
+    } else {
+      const marker = /new\s+PackageList\s*\(\s*this\s*\)\s*\.getPackages\s*\(\s*\)\s*;/;
+      if (marker.test(contents)) {
+        contents = contents.replace(marker, (m) => {
+          return (
+            m +
+            "\n    // ZenWallpaper native module\n" +
+            "    packages.add(new ZenWallpaperPackage());"
+          );
+        });
+      }
     }
   }
 
   return contents;
 }
 
-function patchMainApplicationJava(contents, packageName) {
-  // Java fallback (in case a project generates MainApplication.java)
-  const importLine = `import ${packageName}.ZenWallpaperPackage;\n`;
+function patchKotlinMainApplication(contents, packageName) {
+  contents = addImportKotlin(contents, packageName);
 
-  if (!contents.includes("ZenWallpaperPackage")) {
-    if (contents.match(/^import .*;\s*$/m)) {
-      contents = contents.replace(
-        /(^import .*;\s*$)(?![\s\S]*^import .*;\s*$)/m,
-        (m) => m + "\n" + importLine
-      );
-    } else {
-      contents = importLine + contents;
-    }
-  }
+  if (!contents.includes("packages.add(ZenWallpaperPackage())")) {
+    const lineRegex = /(\s*val\s+packages\s*=\s*PackageList\(this\)\.packages\s*\n)/;
 
-  if (!contents.includes("packages.add(new ZenWallpaperPackage())")) {
-    const re =
-      /new\s+PackageList\s*\(\s*this\s*\)\s*\.getPackages\s*\(\s*\)\s*;/;
-    if (re.test(contents)) {
-      contents = contents.replace(re, (m) => {
+    if (lineRegex.test(contents)) {
+      contents = contents.replace(lineRegex, (m) => {
         return (
           m +
-          "\n    // ZenWallpaper native module\n" +
-          "    packages.add(new ZenWallpaperPackage());"
+          "    // ZenWallpaper native module\n" +
+          "    packages.add(ZenWallpaperPackage())\n"
         );
       });
+    } else {
+      const marker = /PackageList\(this\)\.packages/;
+      if (marker.test(contents)) {
+        contents = contents.replace(marker, (m) => {
+          return (
+            m +
+            "\n    // ZenWallpaper native module\n" +
+            "    packages.add(ZenWallpaperPackage())"
+          );
+        });
+      }
     }
   }
 
   return contents;
+}
+
+function patchMainApplication(contents, packageName) {
+  if (isKotlinMainApplication(contents)) return patchKotlinMainApplication(contents, packageName);
+  return patchJavaMainApplication(contents, packageName);
 }
 
 module.exports = function withZenWallpaperManager(config) {
-  // 1) AndroidManifest permission
   config = withAndroidManifest(config, (config) => {
     config.modResults = addSetWallpaperPermission(config.modResults);
     return config;
   });
 
-  // 2) Copy native files into android/app/src/main/java/<packagePath>/
   config = withDangerousMod(config, [
     "android",
     async (config) => {
@@ -135,41 +155,18 @@ module.exports = function withZenWallpaperManager(config) {
 
       const pkg = config.android?.package;
       if (!pkg) {
-        throw new Error(
-          `[with-zen-wallpaper-manager] expo.android.package is missing in app.json`
-        );
+        throw new Error(`[with-zen-wallpaper-manager] expo.android.package is missing in app.json`);
       }
 
       const androidDir = path.join(projectRoot, "android");
       const pkgPath = pkg.replace(/\./g, "/");
-      const targetDir = path.join(
-        androidDir,
-        "app",
-        "src",
-        "main",
-        "java",
-        pkgPath
-      );
+      const targetDir = path.join(androidDir, "app", "src", "main", "java", pkgPath);
 
-      const srcModule = path.join(
-        projectRoot,
-        "android-native",
-        "ZenWallpaperModule.java"
-      );
-      const srcPackage = path.join(
-        projectRoot,
-        "android-native",
-        "ZenWallpaperPackage.java"
-      );
+      const srcModule = path.join(projectRoot, "android-native", "ZenWallpaperModule.java");
+      const srcPackage = path.join(projectRoot, "android-native", "ZenWallpaperPackage.java");
 
-      const moduleCode = readFileStrict(srcModule, "ZenWallpaperModule.java").replace(
-        /__PACKAGE__/g,
-        pkg
-      );
-      const packageCode = readFileStrict(srcPackage, "ZenWallpaperPackage.java").replace(
-        /__PACKAGE__/g,
-        pkg
-      );
+      const moduleCode = readFileStrict(srcModule, "ZenWallpaperModule.java").replace(/__PACKAGE__/g, pkg);
+      const packageCode = readFileStrict(srcPackage, "ZenWallpaperPackage.java").replace(/__PACKAGE__/g, pkg);
 
       writeFile(path.join(targetDir, "ZenWallpaperModule.java"), moduleCode);
       writeFile(path.join(targetDir, "ZenWallpaperPackage.java"), packageCode);
@@ -178,19 +175,11 @@ module.exports = function withZenWallpaperManager(config) {
     },
   ]);
 
-  // 3) Patch MainApplication (Kotlin-first, Java fallback)
   config = withMainApplication(config, (config) => {
     const pkg = config.android?.package;
     if (!pkg) return config;
 
-    const contents = config.modResults.contents;
-
-    if (isKotlinFile(contents)) {
-      config.modResults.contents = patchMainApplicationKotlin(contents, pkg);
-    } else {
-      config.modResults.contents = patchMainApplicationJava(contents, pkg);
-    }
-
+    config.modResults.contents = patchMainApplication(config.modResults.contents, pkg);
     return config;
   });
 
