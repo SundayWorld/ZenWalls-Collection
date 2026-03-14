@@ -23,6 +23,9 @@
     "android": {
       "package": "app.zenwalls_collection",
       "versionCode": 1,
+      "permissions": [
+        "SET_WALLPAPER"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-background-icon.png",
         "backgroundColor": "#ffffff"
