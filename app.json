@@ -40,7 +40,7 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "./plugins/with-zen-wallpaper-manager"
+     
     ],
 
     "experiments": {
