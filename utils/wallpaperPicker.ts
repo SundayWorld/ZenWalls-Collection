@@ -1,58 +1,30 @@
 // utils/wallpaperPicker.ts
 
-import { Platform, NativeModules } from 'react-native';
+import { Platform } from 'react-native';
+import * as IntentLauncher from 'expo-intent-launcher';
 
-type Which = 'home' | 'lock' | 'both';
-
-function getZenWallpaperModule() {
-  const mod = (NativeModules as any)?.ZenWallpaper;
-
-  if (!mod) {
-    throw new Error(
-      'ZenWallpaper native module not found. Make sure the app was rebuilt.'
-    );
-  }
-
-  return mod;
-}
-
-/**
- * Apply wallpaper using the native ZenWallpaper module.
- * Native side downloads the image and applies it using WallpaperManager.
- */
-
-export async function setAndroidWallpaper(
-  imageUrl: string,
-  which: Which
-): Promise<void> {
-
+export async function openAndroidWallpaperPicker(imageUrl: string) {
   if (Platform.OS !== 'android') {
-    throw new Error('Wallpaper setting is only supported on Android.');
+    throw new Error('Android only');
   }
 
-  const mod = getZenWallpaperModule();
-
-  if (!mod.setWallpaperFromUrl) {
-    throw new Error(
-      'ZenWallpaper.setWallpaperFromUrl missing. Native module needs rebuild.'
-    );
+  if (!imageUrl) {
+    throw new Error('Invalid image URL');
   }
 
   try {
+    console.log('[WallpaperPicker] Opening Android wallpaper picker');
 
-    console.log('[WallpaperPicker] Setting wallpaper:', {
-      url: imageUrl,
-      target: which,
-    });
-
-    await mod.setWallpaperFromUrl(imageUrl, which);
-
-    console.log('[WallpaperPicker] Wallpaper applied successfully');
+    await IntentLauncher.startActivityAsync(
+      'android.intent.action.SET_WALLPAPER',
+      {
+        data: imageUrl,
+        flags: 1,
+      }
+    );
 
   } catch (error) {
-
-    console.error('[WallpaperPicker] Failed to apply wallpaper:', error);
-
-    throw error;
+    console.error('[WallpaperPicker] Failed:', error);
+    throw new Error('Failed to open wallpaper picker');
   }
 }

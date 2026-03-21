@@ -1,18 +1,15 @@
-/* utils/wallpaperEngine.ts */
+// utils/wallpaperEngine.ts
 
 import { Platform } from 'react-native';
-import { setAndroidWallpaper } from '@/utils/wallpaperPicker';
+import { openAndroidWallpaperPicker } from '@/utils/wallpaperPicker';
 
-type Which = 'home' | 'lock' | 'both';
-
-// Build-safe placeholder
 async function safeTrack(_event: string, _props: Record<string, any>) {
-  // no analytics
+  // no-op (future analytics)
 }
 
 function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Wallpaper engine timeout')), ms);
+    const timer = setTimeout(() => reject(new Error('Timeout')), ms);
 
     promise
       .then((v) => {
@@ -28,8 +25,7 @@ function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
 
 export async function setWallpaperPro(
   imageUrl: string,
-  which: Which,
-  meta?: { wallpaperId?: string; category?: string }
+  meta?: { wallpaperId?: string }
 ): Promise<void> {
 
   if (Platform.OS !== 'android') {
@@ -40,44 +36,29 @@ export async function setWallpaperPro(
     throw new Error('Invalid imageUrl');
   }
 
-  const t0 = Date.now();
-
   const base = {
-    which,
     wallpaperId: meta?.wallpaperId ?? 'unknown',
-    category: meta?.category ?? 'unknown',
     androidApi: Platform.Version,
   };
 
-  await safeTrack('wallpaper_set_tap', base);
+  await safeTrack('wallpaper_tap', base);
 
   try {
+    await safeTrack('wallpaper_attempt', base);
 
-    await safeTrack('wallpaper_set_attempt', {
+    await withTimeout(
+      openAndroidWallpaperPicker(imageUrl),
+      15000
+    );
+
+    await safeTrack('wallpaper_success', base);
+
+  } catch (error) {
+    await safeTrack('wallpaper_fail', {
       ...base,
-      method: 'native',
+      error: String(error),
     });
 
-    // Direct native engine
-    await withTimeout(setAndroidWallpaper(imageUrl, which), 15000);
-
-    await safeTrack('wallpaper_set_success', {
-      ...base,
-      method: 'native',
-      ms: Date.now() - t0,
-    });
-
-    return;
-
-  } catch (e) {
-
-    await safeTrack('wallpaper_set_fail', {
-      ...base,
-      method: 'native',
-      ms: Date.now() - t0,
-      error: String(e),
-    });
-
-    throw new Error(`Wallpaper failed: ${String(e)}`);
+    throw new Error('Could not open wallpaper settings');
   }
 }
