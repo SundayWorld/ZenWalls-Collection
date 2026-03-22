@@ -1,5 +1,3 @@
-// app/preview.tsx
-
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
@@ -86,32 +84,28 @@ export default function PreviewScreen() {
     if (isSettingWallpaper) return;
 
     if (Platform.OS !== 'android') {
-      Alert.alert('Android Only');
+      Alert.alert('Android Only', 'This feature works only on Android.');
       return;
     }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setIsSettingWallpaper(true);
 
-    showToastMessage('Opening wallpaper settings...');
+    showToastMessage('Preparing wallpaper...');
 
     try {
       await setWallpaperPro(wallpaper.imageUrl, {
         wallpaperId: wallpaper.id,
       });
 
-      showToastMessage('Select Home / Lock / Both');
+      showToastMessage('Choose Home / Lock / Both');
 
     } catch (error) {
-      Alert.alert("Error", getErrorMessage(error));
+      Alert.alert('Error', getErrorMessage(error));
     } finally {
       setIsSettingWallpaper(false);
     }
   }, [wallpaper, isSettingWallpaper, showToastMessage]);
-
-  const handleSetWallpaperPress = useCallback(() => {
-    applyWallpaper();
-  }, [applyWallpaper]);
 
   if (!wallpaper) {
     return (
@@ -138,7 +132,7 @@ export default function PreviewScreen() {
 
         <Pressable
           style={[styles.setWallpaperButton, isSettingWallpaper && styles.buttonDisabled]}
-          onPress={handleSetWallpaperPress}
+          onPress={applyWallpaper}
           disabled={isSettingWallpaper}
         >
           {isSettingWallpaper ? (
