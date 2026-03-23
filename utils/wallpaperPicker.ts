@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as IntentLauncher from 'expo-intent-launcher';
-import * as FileSystem from 'expo-file-system/legacy'; // ✅ FIXED
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 
 export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void> {
@@ -28,13 +28,13 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
 
     console.log('[WallpaperPicker] Downloaded:', download.uri);
 
-    // ✅ Step 3: Resize + Convert to JPG (CRITICAL FIX)
+    // ✅ Step 3: Resize + Convert to JPG
     const manipulated = await ImageManipulator.manipulateAsync(
       download.uri,
       [
         {
           resize: {
-            width: 1080, // ✅ safe universal width
+            width: 1080,
           },
         },
       ],
@@ -50,14 +50,18 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
 
     console.log('[WallpaperPicker] Processed:', manipulated.uri);
 
-    // ✅ Step 4: Main method (ATTACH_DATA)
+    // ✅ Step 4: FIXED ATTACH_DATA (CRITICAL)
     try {
       await IntentLauncher.startActivityAsync(
         'android.intent.action.ATTACH_DATA',
         {
           data: manipulated.uri,
-          type: 'image/*',
-          flags: 1,
+          type: 'image/jpeg',
+          flags: 3,
+          extra: {
+            mimeType: 'image/jpeg',
+            'android.intent.extra.STREAM': manipulated.uri,
+          },
         }
       );
 
@@ -67,7 +71,7 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
       console.warn('[WallpaperPicker] ATTACH_DATA failed → fallback');
     }
 
-    // ✅ Fallback: Open system wallpaper screen
+    // ✅ Fallback (still useful)
     try {
       await IntentLauncher.startActivityAsync(
         'android.intent.action.SET_WALLPAPER'
