@@ -46,7 +46,8 @@ export default function PreviewScreen() {
     try {
       if (!wallpaperParam) return null;
       return JSON.parse(wallpaperParam);
-    } catch {
+    } catch (error) {
+      console.error('[Preview] JSON parse error:', error);
       return null;
     }
   }, [wallpaperParam]);
@@ -73,6 +74,7 @@ export default function PreviewScreen() {
     if (action === 'removed') showToastMessage('Removed from Favorites');
   }, [wallpaper, toggleFavorite, showToastMessage]);
 
+  // Prevent stuck loading if user leaves screen
   useFocusEffect(
     useCallback(() => {
       return () => setIsSettingWallpaper(false);
@@ -88,20 +90,32 @@ export default function PreviewScreen() {
       return;
     }
 
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsSettingWallpaper(true);
-
-    showToastMessage('Preparing wallpaper...');
-
     try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setIsSettingWallpaper(true);
+
+      showToastMessage('Preparing wallpaper...');
+
+      // ✅ Safety check
+      if (!wallpaper.imageUrl) {
+        Alert.alert('Error', 'Invalid wallpaper image');
+        return;
+      }
+
+      console.log('[Preview] Applying wallpaper:', wallpaper.id);
+
       await setWallpaperPro(wallpaper.imageUrl, {
         wallpaperId: wallpaper.id,
       });
 
-      showToastMessage('Choose Home / Lock / Both');
+      // ✅ Updated UX message
+      showToastMessage('Select where to apply wallpaper');
 
     } catch (error) {
-      Alert.alert('Error', getErrorMessage(error));
+      const msg = getErrorMessage(error);
+      console.error('[Preview] Error:', msg);
+
+      Alert.alert('Error', msg);
     } finally {
       setIsSettingWallpaper(false);
     }
@@ -119,10 +133,18 @@ export default function PreviewScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      <Image source={{ uri: wallpaper.imageUrl }} style={styles.image} />
+      <Image
+        source={{ uri: wallpaper.imageUrl }}
+        style={styles.image}
+        contentFit="cover"
+        transition={300}
+      />
 
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + 16 }]}>
-        <Pressable style={styles.favoriteButton} onPress={handleFavoritePress}>
+        <Pressable
+          style={styles.favoriteButton}
+          onPress={handleFavoritePress}
+        >
           <Heart
             size={24}
             color={isFav ? Colors.favorite : Colors.text}
@@ -131,7 +153,10 @@ export default function PreviewScreen() {
         </Pressable>
 
         <Pressable
-          style={[styles.setWallpaperButton, isSettingWallpaper && styles.buttonDisabled]}
+          style={[
+            styles.setWallpaperButton,
+            isSettingWallpaper && styles.buttonDisabled,
+          ]}
           onPress={applyWallpaper}
           disabled={isSettingWallpaper}
         >
@@ -143,14 +168,23 @@ export default function PreviewScreen() {
         </Pressable>
       </View>
 
-      <Toast message={toastMessage} visible={showToast} onHide={handleHideToast} />
+      <Toast
+        message={toastMessage}
+        visible={showToast}
+        onHide={handleHideToast}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  image: { flex: 1 },
+
+  image: {
+    flex: 1,
+    width: '100%',
+  },
+
   actionBar: {
     position: 'absolute',
     bottom: 0,
@@ -162,6 +196,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     gap: 16,
   },
+
   favoriteButton: {
     width: 52,
     height: 52,
@@ -170,6 +205,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   setWallpaperButton: {
     flex: 1,
     height: 52,
@@ -178,16 +214,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonDisabled: { opacity: 0.7 },
+
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+
   setWallpaperText: {
     color: Colors.background,
     fontWeight: '700',
+    letterSpacing: 0.5,
   },
+
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   errorText: {
     color: Colors.textMuted,
   },
