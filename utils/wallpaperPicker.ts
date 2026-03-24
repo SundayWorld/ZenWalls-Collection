@@ -1,5 +1,3 @@
-// utils/wallpaperPicker.ts
-
 import { Platform } from 'react-native';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -17,11 +15,9 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
   try {
     console.log('[WallpaperPicker] Start');
 
-    // ✅ Step 1: Create file path
-    const fileName = `wallpaper_${Date.now()}.jpg`;
-    const fileUri = FileSystem.cacheDirectory + fileName;
+    // 1. Download image
+    const fileUri = FileSystem.cacheDirectory + `wallpaper_${Date.now()}.jpg`;
 
-    // ✅ Step 2: Download image
     const download = await FileSystem.downloadAsync(imageUrl, fileUri);
 
     if (!download?.uri) {
@@ -30,16 +26,10 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
 
     console.log('[WallpaperPicker] Downloaded:', download.uri);
 
-    // ✅ Step 3: Resize + Convert to JPG
+    // 2. Convert to JPG (important for Android compatibility)
     const manipulated = await ImageManipulator.manipulateAsync(
       download.uri,
-      [
-        {
-          resize: {
-            width: 1080,
-          },
-        },
-      ],
+      [{ resize: { width: 1080 } }],
       {
         compress: 0.9,
         format: ImageManipulator.SaveFormat.JPEG,
@@ -52,17 +42,20 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
 
     console.log('[WallpaperPicker] Processed:', manipulated.uri);
 
-    // ✅ FINAL UNIVERSAL METHOD (WORKS ON ALL DEVICES)
+    // 3. Correct Android intent (THIS IS THE KEY FIX)
     await IntentLauncher.startActivityAsync(
-      'android.intent.action.VIEW',
+      'android.intent.action.ATTACH_DATA',
       {
-        data: manipulated.uri,
         type: 'image/jpeg',
         flags: 3,
+        extra: {
+          'android.intent.extra.STREAM': manipulated.uri,
+          mimeType: 'image/jpeg',
+        },
       }
     );
 
-    console.log('[WallpaperPicker] VIEW opened successfully');
+    console.log('[WallpaperPicker] Wallpaper chooser opened');
 
   } catch (error) {
     console.error('[WallpaperPicker] Error:', error);
@@ -70,7 +63,7 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
     throw new Error(
       error instanceof Error
         ? error.message
-        : 'Failed to open image viewer'
+        : 'Failed to open wallpaper picker'
     );
   }
 }

@@ -5,25 +5,8 @@ type Meta = {
   wallpaperId?: string;
 };
 
-// Safe placeholder (no analytics yet)
+// Safe placeholder (no analytics)
 async function safeTrack(_event: string, _props: Record<string, any>) {}
-
-// Timeout wrapper (prevents freeze)
-function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timeout')), ms);
-
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-  });
-}
 
 export async function setWallpaperPro(
   imageUrl: string,
@@ -47,8 +30,8 @@ export async function setWallpaperPro(
   try {
     await safeTrack('wallpaper_attempt', base);
 
-    // ✅ CORE ENGINE (DO NOT TOUCH)
-    await withTimeout(openAndroidWallpaperPicker(imageUrl), 15000);
+    // ✅ FINAL CALL (NO TIMEOUT)
+    await openAndroidWallpaperPicker(imageUrl);
 
     await safeTrack('wallpaper_success', base);
 
