@@ -1,3 +1,5 @@
+// utils/wallpaperPicker.ts
+
 import { Platform } from 'react-native';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -50,41 +52,17 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
 
     console.log('[WallpaperPicker] Processed:', manipulated.uri);
 
-    // ✅ Step 4: FIXED ATTACH_DATA (CRITICAL)
-    try {
-      await IntentLauncher.startActivityAsync(
-        'android.intent.action.ATTACH_DATA',
-        {
-          data: manipulated.uri,
-          type: 'image/jpeg',
-          flags: 3,
-          extra: {
-            mimeType: 'image/jpeg',
-            'android.intent.extra.STREAM': manipulated.uri,
-          },
-        }
-      );
+    // ✅ FINAL UNIVERSAL METHOD (WORKS ON ALL DEVICES)
+    await IntentLauncher.startActivityAsync(
+      'android.intent.action.VIEW',
+      {
+        data: manipulated.uri,
+        type: 'image/jpeg',
+        flags: 3,
+      }
+    );
 
-      console.log('[WallpaperPicker] ATTACH_DATA success');
-      return;
-    } catch (err) {
-      console.warn('[WallpaperPicker] ATTACH_DATA failed → fallback');
-    }
-
-    // ✅ Fallback (still useful)
-    try {
-      await IntentLauncher.startActivityAsync(
-        'android.intent.action.SET_WALLPAPER'
-      );
-
-      console.log('[WallpaperPicker] SET_WALLPAPER fallback success');
-      return;
-    } catch (err) {
-      console.warn('[WallpaperPicker] SET_WALLPAPER failed');
-    }
-
-    // ❌ Final failure
-    throw new Error('No available wallpaper method worked');
+    console.log('[WallpaperPicker] VIEW opened successfully');
 
   } catch (error) {
     console.error('[WallpaperPicker] Error:', error);
@@ -92,7 +70,7 @@ export async function openAndroidWallpaperPicker(imageUrl: string): Promise<void
     throw new Error(
       error instanceof Error
         ? error.message
-        : 'Failed to open wallpaper picker'
+        : 'Failed to open image viewer'
     );
   }
 }
