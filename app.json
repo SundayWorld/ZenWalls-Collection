@@ -4,31 +4,36 @@
     "slug": "zenwalls-collection",
     "version": "1.0.1",
     "orientation": "portrait",
+
     "icon": "./assets/images/icon.png",
     "scheme": "zenwalls-collection",
+
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
 
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
     },
 
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.zenwalls-collection"
+      "bundleIdentifier": "app.zenwalls_collection"
     },
 
     "android": {
       "package": "app.zenwalls_collection",
       "versionCode": 1,
+
       "permissions": [
-        "SET_WALLPAPER"
+        "SET_WALLPAPER",
+        "SET_WALLPAPER_HINTS"
       ],
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-background-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#000000"
       }
     },
 
@@ -39,8 +44,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-web-browser",
-     
+      "expo-web-browser"
     ],
 
     "experiments": {

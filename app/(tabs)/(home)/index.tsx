@@ -1,5 +1,3 @@
-// app/(tabs)/(home)/index.tsx
-
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, Text, ScrollView, FlatList, Pressable, Image } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
@@ -11,7 +9,6 @@ import WelcomeBanner from '../../../components/WelcomeBanner';
 import TrendingCard from '../../../components/TrendingCard';
 import CollectionCard from '../../../components/CollectionCard';
 import NewWallpaperCard from '../../../components/NewWallpaperCard';
-import AdBanner from '../../../components/AdBanner';
 
 import {
   collections,
@@ -47,10 +44,10 @@ function toRotatedCollection(c: any): RotatedCollection {
 
 function pickBestCoverUrl(item: any): string {
   return String(
-    item?.rotatedCoverUrl ??
-      item?.coverUrl ??
-      item?.coverImageUrl ??
-      item?.coverImages?.[0] ??
+    item?.rotatedCoverUrl ?? 
+      item?.coverUrl ?? 
+      item?.coverImageUrl ?? 
+      item?.coverImages?.[0] ?? 
       ''
   );
 }
@@ -111,9 +108,9 @@ export default function HomeScreen() {
             return {
               ...collection,
               rotatedCoverUrl: String(
-                wallpapers[rotationIndex]?.thumbnailUrl ??
-                  wallpapers[rotationIndex]?.imageUrl ??
-                  collection.coverUrl
+                wallpapers[rotationIndex]?.thumbnailUrl ?? 
+                wallpapers[rotationIndex]?.imageUrl ?? 
+                collection.coverUrl
               ),
             };
           }
@@ -197,11 +194,8 @@ export default function HomeScreen() {
 
       <LinearGradient colors={[Colors.gradientEnd, 'transparent']} style={styles.backgroundGradient} />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      {/* Fix: Closing ScrollView */}
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerSubtitle}>
           <Text style={styles.subtitleText}>New wallpapers every 12 hours</Text>
         </View>
@@ -258,8 +252,6 @@ export default function HomeScreen() {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      <AdBanner />
     </View>
   );
 }
