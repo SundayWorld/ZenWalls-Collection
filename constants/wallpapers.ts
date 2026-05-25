@@ -48,7 +48,7 @@ export const COLLECTIONS_META: Record<
   "cartoon": { folder: "cartoon", prefix: "cartoon", count: 18 },
 
   // Utility
-  "Cute-Icons": { folder: "Cute-Icons", prefix: "Cute-Icons", count: 24 },
+  "Cute Icons": { folder: "Cute Icons", prefix: "Cute Icons", count: 24 },
   "quotes": { folder: "quotes", prefix: "quotes", count: 23 },
 
   // Sports
