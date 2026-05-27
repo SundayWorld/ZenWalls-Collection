@@ -180,10 +180,10 @@ export const collections: Collection[] = [
     wallpaperCount: 18,
   },
   {
-    id: "Cute Icons",
+    id: "cute-icons",
     name: "Cute Icons",
-    slug: "Cute Icons",
-    coverImages: buildSafeCoverImages("Cute Icons"),
+    slug: "cute-icons",
+    coverImages: buildSafeCoverImages("quiet-icons"),
     wallpaperCount: 24,
   },
   {
