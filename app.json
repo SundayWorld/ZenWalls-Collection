@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "app.zenwalls_collection",
-      "versionCode": 1,
+      "versionCode": 45,
       "permissions": [
         "SET_WALLPAPER",
         "SET_WALLPAPER_HINTS"
